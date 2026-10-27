@@ -1,0 +1,101 @@
+REPORTE DE TESTS NETMO
+======================
+
+Fecha: 17/09/2026
+Entorno: Windows, Docker Desktop, Node.js 24, Compose
+
+1. PRUEBAS EJECUTADAS Y APROBADAS
+----------------------------------
+
+- `node --check backend/server.js`: aprobado.
+- `sh -n database/scripts/backup-loop.sh`: aprobado.
+- Suite `database/scripts/test-backup-loop.sh`: aprobada. Resultado:
+  "Todas las pruebas de backup pasaron."
+- `docker compose --env-file database/.env.example config --quiet`: aprobado.
+- Scripts JavaScript embebidos en `index.html`: válidos con `vm.Script`.
+- Carga HTTP temporal de `index.html`: HTTP 200.
+- Tamaño de `index.html`: 118.975 bytes.
+- El backend Docker se construyó correctamente durante la integración aislada.
+- La imagen PostgreSQL se construyó correctamente durante la integración aislada.
+
+2. INTEGRACION DOCKER AISLADA APROBADA
+--------------------------------------
+
+Se creó un proyecto Compose temporal con un volumen nombrado independiente.
+No se usaron ni modificaron los datos persistentes existentes del proyecto.
+
+- PostgreSQL 16: saludable.
+- Backend Node.js: saludable.
+- Puerto temporal de PostgreSQL: 127.0.0.1:55432.
+- Puerto temporal de API: 3010.
+- `GET /health`:
+
+  {"ok":true,"service":"netmo-api"}
+
+- Login seed de administrador: aprobado.
+- Tablas verificadas: users, user_preferences, notebooks, reservations, loans,
+  returns y tickets.
+- Usuarios seed: 6.
+- Backup real generado: `backup-2026-09-17.dump`.
+- Tamaño del backup: 37.537 bytes.
+- `pg_restore --list`: aprobado.
+- El listado del dump incluyó extensiones, tipos, tablas, datos, secuencias,
+  índices, restricciones, triggers y funciones.
+- El Compose temporal, su volumen, su red y sus contenedores fueron eliminados
+  al finalizar la prueba.
+
+3. RESULTADOS DEL ENTORNO ACTUAL
+--------------------------------
+
+El contenedor `database-backend-1` ya estaba ejecutándose en el puerto 3000,
+pero su red solo contiene el backend. Sus variables indican `DB_HOST=postgres`,
+pero no existe un servicio PostgreSQL accesible con ese nombre.
+
+- `GET http://127.0.0.1:3000/health`: falló.
+- Error observado: `getaddrinfo ENOTFOUND postgres`.
+- No se reinició ni se eliminó el contenedor existente para evitar afectar datos
+  persistentes no controlados.
+- Los contenedores ajenos observados (MySQL de otra aplicación y Jellyfin) no
+  fueron modificados.
+
+Este fallo pertenece al entorno Compose activo, no a la integración aislada que
+fue levantada y validada correctamente.
+
+4. HALLAZGOS Y RIESGOS
+----------------------
+
+- El directorio local antiguo `database/postgres-data` no debe reutilizarse como
+  bind mount en Docker Desktop para Windows: PostgreSQL rechazó sus permisos.
+- La configuración actual usa el volumen nombrado `postgres-data`, que resolvió
+  el problema en la integración aislada.
+- La instancia persistente antigua puede tener un esquema incompleto. Cambiar
+  `schema.sql` no ejecuta migraciones sobre un volumen ya inicializado.
+- La API activa usa `CORS_ORIGIN=*`; para un servidor real debe configurarse un
+  origen concreto.
+- El reporte no considera restauración sobre producción ni borrado de datos.
+
+5. PRUEBAS PENDIENTES
+---------------------
+
+- Levantar el Compose del proyecto con un `database/.env` autorizado y validar
+  el entorno operativo real.
+- Decidir si los datos del directorio antiguo deben migrarse mediante un backup
+  y restauración explícitos.
+- Probar persistencia reiniciando el volumen nombrado, sin eliminarlo.
+- Restaurar el dump en una base temporal y comprobar nuevamente la API contra
+  esa base.
+- Prueba visual con navegador y flujo completo mediante clicks.
+- Pruebas funcionales completas de reservas, devoluciones, tickets,
+  preferencias y permisos contra PostgreSQL activo.
+
+6. CONCLUSION
+-------------
+
+El código, el frontend, Compose, el esquema limpio, el backend integrado y el
+sistema de backups superaron las pruebas reproducibles disponibles. La
+integración aislada Docker quedó validada de extremo a extremo.
+
+El entorno actualmente activo sigue incompleto porque el backend apunta a
+`postgres` sin tener un PostgreSQL accesible en su red. No se debe borrar ni
+recrear la instancia persistente antigua sin conservar primero un backup válido
+y contar con una decisión explícita sobre la migración de sus datos.
